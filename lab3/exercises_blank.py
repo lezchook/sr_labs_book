@@ -56,7 +56,11 @@ class train_dataset_loader(Dataset):
             ###########################################################
             # Here is your code
 
-            pass
+            if random.random() < 0.5:
+                audio = self.augment_wav.reverberate(audio)
+            if random.random() < 0.5:
+                noise_type = random.choice(['noise', 'speech', 'music'])
+                audio = self.augment_wav.additive_noise(noise_type, audio)
             
             ###########################################################
             
@@ -209,7 +213,22 @@ class ResNet(nn.Module):
 
         ###########################################################
         # Here is your code
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
 
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        if self.encoder_type == "SP":
+            mean = x.mean(dim=3)  # (B, C, F)
+            std = x.std(dim=3)    # (B, C, F)
+            x = torch.cat((mean, std), dim=2)  # (B, C, 2*F)
+            x = torch.flatten(x, start_dim=1)  # (B, 2*C*F)
+
+        x = self.fc(x)
         ###########################################################
 
         return x
@@ -258,7 +277,19 @@ def train_network(train_loader, main_model, optimizer, scheduler, num_epoch, ver
         
         ###########################################################
         # Here is your code
+        data = data.cuda()
+        data_label = data_label.cuda()
 
+        optimizer.zero_grad()
+
+        nloss, prec1 = main_model(data, data_label)
+
+        nloss.backward()
+        optimizer.step()
+
+        loss += nloss.item()
+        top1 += prec1.item()
+        counter += 1
         ###########################################################
         
         if verbose:
@@ -285,7 +316,15 @@ def test_network(test_loader, main_model):
         
         ###########################################################
         # Here is your code
-        
+        data = data.cuda()
+        data_label = data_label.cuda()
+
+        with torch.no_grad():
+            nloss, prec1 = main_model(data, data_label)
+
+        loss += nloss.item()
+        top1 += prec1
+        counter += 1
         ###########################################################
 
     return (loss/counter, top1/counter)
