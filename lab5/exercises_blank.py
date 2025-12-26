@@ -126,15 +126,65 @@ def s_norm(test_data, lines, adapt_data, N_s=200, eps=0.5):
     
     ###########################################################
     # Here is your code
-    
-    ###########################################################
 
+
+    def l2norm(x, axis=1):
+        norm = np.linalg.norm(x, axis=axis, keepdims=True)
+        return x / norm
+
+    E_norm = l2norm(E)
+    T_norm = l2norm(T)
+    A_norm = l2norm(A)
+
+
+    S_eA = np.matmul(E_norm, A_norm.T)
+    S_tA = np.matmul(T_norm, A_norm.T)
+
+    enroll_idx = {enr: i for i, enr in enumerate(enroll_list)}
+    test_idx   = {tst: i for i, tst in enumerate(test_list)}
+
+    for line in lines:
+        parts = line.strip().split()
+        label = int(parts[0])
+        enr_name = parts[1]
+        tst_name = parts[2]
+
+        ie = enroll_idx[enr_name]
+        it = test_idx[tst_name]
+
+        S_raw = float(np.dot(E_norm[ie], T_norm[it]))
+
+        scores_e = S_eA[ie]
+        scores_t = S_tA[it] 
+
+        idx_e = np.argsort(scores_e)[::-1][:N_s]
+        top_e = scores_e[idx_e]
+        mu_e = top_e.mean()
+        sigma_e = top_e.std()
+
+        idx_t = np.argsort(scores_t)[::-1][:N_s]
+        top_t = scores_t[idx_t]
+        mu_t = top_t.mean()
+        sigma_t = top_t.std()
+
+        S_hat = (S_raw - mu_e) / (2.0 * sigma_e) + (S_raw - mu_t) / (2.0 * sigma_t)
+
+        scores_adapted.append(S_hat)
+        all_labels.append(label)
+        all_trials.append(enr_name + ' ' + tst_name)
+
+    scores_adapted = np.array(scores_adapted, dtype=np.float32)
+    all_labels = np.array(all_labels, dtype=np.int32)
+
+    ###########################################################
+    
     return scores_adapted, all_labels, all_trials
+
 
 class CalibrationDataset(Dataset):
 
     def __init__(self, target_scores, impostor_scores):
-        super(CalibrationDataset, self).__init__()
+        super().__init__()
 
         self.target_scores   = target_scores
         self.impostor_scores = impostor_scores
@@ -153,7 +203,7 @@ class LinearCalibrationModel(torch.nn.Module):
     # Building of the full model for constructing the extractor of features
     
     def __init__(self):
-        super(LinearCalibrationModel, self).__init__()
+        super().__init__()
         
         self.calib_params = nn.Linear(1, 1)
 
@@ -161,7 +211,7 @@ class LinearCalibrationModel(torch.nn.Module):
         
         ###########################################################
         # Here is your code
-            
+        calib_x = self.calib_params(x)
         ###########################################################
 
         return calib_x
@@ -174,7 +224,7 @@ class CalibrationLoss(nn.Module):
         :param ptar: probability of target hypothesis
         '''
         
-        super(CalibrationLoss, self).__init__()
+        super().__init__()
         
         self.ptar  = ptar
         self.alpha = np.log(ptar/(1 - ptar))
@@ -190,7 +240,10 @@ class CalibrationLoss(nn.Module):
         
         ###########################################################
         # Here is your code
+        targ_term = negative_log_sigmoid(target_llrs - self.alpha)
+        nont_term = negative_log_sigmoid(-(nontarget_llrs - self.alpha))
 
+        loss_value = (self.ptar * torch.mean(targ_term) + (1 - self.ptar) * torch.mean(nont_term))
         ###########################################################
 
         return loss_value
@@ -208,6 +261,19 @@ def train_calibration(train_loader, model, criterion, optimizer, scheduler, num_
             
             ###########################################################
             # Here is your code
+
+            optimizer.zero_grad()
+            
+            tar_sc = tar_sc.view(-1, 1)
+            imp_sc = imp_sc.view(-1, 1)
+
+            tar_llr = model(tar_sc)            
+            imp_llr = model(imp_sc)             
+
+            loss = criterion(tar_llr, imp_llr)
+                        
+            loss.backward()
+            optimizer.step()
             
             ###########################################################
                             
